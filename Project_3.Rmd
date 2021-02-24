@@ -695,3 +695,57 @@ ggplot(df_limma_treat, aes(x = log2foldchange, y = -log10(qval), color = is_sign
   theme(legend.position = "bottom",
         legend.box.background = element_rect(linetype = 0.5, size = 2))
 ```
+
+
+# Addition 
+
+    This does not apply to proteins, just the results of the experiment are interesting.
+
+All mice will be divided into 2 groups: trained / not trained;
+
+In this study, mice from classes c-CS-s, c-CS-m, t-CS-m learned, the remaining classes (t-CS-s, t-SC-s, t-SC-m, c-SC- s, c-SC-m) did not learn during the research.
+
+```{r}
+Data_withoutNA$result <- ifelse((Data_withoutNA$class == "c-CS-s"|   
+                                 Data_withoutNA$class == "c-CS-m" |  
+                                 Data_withoutNA$class == "t-CS-m"), "ok","fail")
+Data_withoutNA$result <- as.factor(Data_withoutNA$result)
+```
+
+Let's check the hypothesis about the connection between the use of the drug and the result of the experiment:
+
+H0: the result of the experiment is not related to the use of the drug
+
+```{r}
+chisq.test(table(Data_withoutNA$result, Data_withoutNA$Treatment))
+```
+
+p-value < 0.05 - we reject the null hypothesis that the result of the experiment is not related to the use of the drug.
+
+We visualize this data:
+
+```{r}
+treatment_result <- table(Data_withoutNA$result, Data_withoutNA$Treatment)
+mosaicplot(treatment_result, shade = T)
+```
+
+
+As can be seen in the graph, there are more mice that did not learn during the experiment than mice that learned, while the mice that took Memantine were more likely to learn during the experiment than mice without the drug.
+
+Let's analyze the effect of electrical stimulation on the result of the experiment:
+
+H0: the result of the experiment is not related to electrical stimulation 
+
+```{r}
+chisq.test(table(Data_withoutNA$result, Data_withoutNA$Behavior))
+```
+
+p-value < 0.05 - reject the null hypothesis that the result of the experiment is not associated with electrical stimulation.
+
+
+```{r}
+stimul_result <- table(Data_withoutNA$result, Data_withoutNA$Behavior)
+mosaicplot(stimul_result, shade = T)
+```
+
+The graph shows that mice that were stimulated with an electric current are more likely to learn than mice without electrical stimulation.
