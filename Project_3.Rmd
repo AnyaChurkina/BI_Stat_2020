@@ -1,0 +1,783 @@
+---
+title: "Project_3"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_section: true
+---
+
+```{r, message = FALSE, warning=FALSE}
+require(readxl)
+require(psych)
+require(ggplot2) 
+require(dplyr)
+require(car)
+require(gridExtra)
+require(tidyr)
+require(vegan)
+require(multcomp) 
+require(factoextra)
+require(plotly)
+require(limma)
+require(ggrepel)
+theme_set(theme_bw())
+```
+
+```{r}
+Data_Cortex_Nuclear <- read_excel("Data_Cortex_Nuclear.xls")
+```
+
+# Task 1. Make a description of the dataset
+
+## How many mice were in the experiment:
+
+```{r}
+dim(Data_Cortex_Nuclear)
+```
+
+In this study, there are 1080 observations, however, it can be noted that each mouse was measured parameters in 15 repetitions, so the total mice in this experiment were:
+
+```{r}
+Data_Cortex_Nuclear$uniqID <- sapply(strsplit(Data_Cortex_Nuclear$MouseID, "_"), 
+                     function(x) x[1])
+
+length(unique(Data_Cortex_Nuclear$uniqID))
+```
+
+## What groups can you distinguish:
+
+Data structure:
+
+```{r}
+str(Data_Cortex_Nuclear)
+```
+
+Replace the data type of the Genotype, Treatment, Behavior and class variables with the "factor" type:
+
+```{r}
+Data_Cortex_Nuclear[,-c(1, 83)][sapply(Data_Cortex_Nuclear[,-c(1, 83)], is.character)] <- 
+  Data_Cortex_Nuclear[,-c(1, 83)][sapply(Data_Cortex_Nuclear[,-c(1, 83)], is.character)] %>%
+  mutate_if(is.character, as.factor)
+```
+
+```{r}
+sapply(Data_Cortex_Nuclear[sapply(Data_Cortex_Nuclear, is.factor)], levels)
+```
+
+Mice can be divided into:
+
+    - 2 groups according to the Genotype variable: control and mice with Down syndrome;
+    - 2 groups for the Treatment variable: mice in which were treated with the drug - "Memantine" and mice receiving placebo -     "Saline";
+    - 2 groups on the Behavior variable: with S / C stimulation and without C / S;
+    - 8 groups by variable class: "c-CS-m" "c-CS-s" "c-SC-m" "c-SC-s" "t-CS-m" "t-CS-s" " t-SC-m "" t-SC-s "
+    
+
+```{r message=FALSE, warning=FALSE}
+Genotypes <- Data_Cortex_Nuclear %>%
+      group_by(uniqID, Genotype) %>%
+      summarise()
+Treatments <- Data_Cortex_Nuclear %>%
+      group_by(uniqID, Treatment) %>%
+      summarise()
+Stimul <- Data_Cortex_Nuclear %>%
+      group_by(uniqID, Behavior) %>%
+      summarise()
+All_classes <- Data_Cortex_Nuclear %>%
+      group_by(uniqID, class) %>%
+      summarise()
+```
+
+```{r message=FALSE, warning=FALSE}
+paste0("Number of control mice: ", 
+       (nrow(Genotypes[Genotypes$Genotype=="Control",])))
+paste0("Number of mice whith Down syndrom: ", 
+       (nrow(Genotypes[Genotypes$Genotype=="Ts65Dn",])))
+paste0("Number of mice treated with Memantine: ", 
+       (nrow(Treatments[Treatments$Treatment=="Memantine",])))
+paste0("Number of mice treated with Saline: ", 
+       (nrow(Treatments[Treatments$Treatment=="Saline",])))
+paste0("Number of Stimulated mice: ", (nrow(Stimul[Stimul$Behavior=="S/C",])))
+paste0("Number of Not Stimulatedmice : ", 
+       (nrow(Stimul[Stimul$Behavior=="C/S",])))
+paste0("Number of c-CS-m  mice: ", 
+       (nrow(All_classes[All_classes$class=="c-CS-m",])))
+paste0("Number of c-CS-s mice: ", 
+       (nrow(All_classes[All_classes$class=="c-CS-s",])))
+paste0("Number of c-SC-m mice: ", 
+       (nrow(All_classes[All_classes$class=="c-SC-m",])))
+paste0("Number of c-SC-s mice: ", 
+       (nrow(All_classes[All_classes$class=="c-SC-s",])))
+paste0("Number of t-CS-m mice: ", 
+       (nrow(All_classes[All_classes$class=="t-CS-m",])))
+paste0("Number of t-CS-s mice: ", 
+       (nrow(All_classes[All_classes$class=="t-CS-s",])))
+paste0("Number of t-SC-m mice: ", 
+       (nrow(All_classes[All_classes$class=="t-SC-m",])))
+paste0("Number of t-SC-s mice: ", 
+       (nrow(All_classes[All_classes$class=="t-SC-s",])))
+```
+
+## How balanced these groups are
+
+Distribution of mice by classes:
+
+```{r}
+ggplot(All_classes, aes(x=class, fill=class)) +
+  geom_bar()+ xlab("Class") + ylab("Number of mice") +
+  labs(fill = "Class") + ggtitle("Mouse distribution by classes") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5)) + 
+  scale_fill_brewer(palette = "Spectral")
+```
+
+Distribution of the total number of observations by classes:
+
+```{r}
+ggplot(Data_Cortex_Nuclear, aes(x=class, fill=class)) +
+  geom_bar() + xlab("Class") + ylab("Number of observations") +
+  labs(fill = "Class") + ggtitle("Number of observations by classes") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5)) + 
+  scale_fill_brewer(palette = "Spectral")
+```
+
+Observations: these graphs show that in the t-CS-s class there are the fewest observations and mice in the total amount, thus, we can say that the data are not balanced;
+
+## How many complete observations (it is about NA)
+
+```{r message=FALSE, warning=FALSE}
+Data_Cortex_Nuclear %>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting
+
+paste0("Number of mouses with all data is: ", sum(rowSums(Data_NA_counting [,-1])==0))
+```
+
+## Number of complete observations in each class
+
+```{r}
+subset(Data_Cortex_Nuclear, class=="c-CS-m")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class1
+subset(Data_Cortex_Nuclear, class=="c-CS-s")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class2
+subset(Data_Cortex_Nuclear, class=="c-SC-m")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class3
+subset(Data_Cortex_Nuclear, class=="c-SC-s")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class4
+subset(Data_Cortex_Nuclear, class=="t-CS-m")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class5
+subset(Data_Cortex_Nuclear, class=="t-CS-s")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class6
+subset(Data_Cortex_Nuclear, class=="t-SC-m")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class7
+subset(Data_Cortex_Nuclear, class=="t-SC-s")%>%
+  group_by(uniqID) %>%
+  summarise_all(funs(sum(is.na(.)))) -> Data_NA_counting_class8
+
+paste0("Number of c-CS-m mouses with all data is: ", sum(rowSums(Data_NA_counting_class1[,-1])==0))
+paste0("Number of c-CS-s mouses with all data is: ", sum(rowSums(Data_NA_counting_class2[,-1])==0))
+paste0("Number of c-SC-m mouses with all data is: ", sum(rowSums(Data_NA_counting_class3[,-1])==0))
+paste0("Number of c-SC-s mouses with all data is: ", sum(rowSums(Data_NA_counting_class4[,-1])==0))
+paste0("Number of t-CS-m mouses with all data is: ", sum(rowSums(Data_NA_counting_class5[,-1])==0))
+paste0("Number of t-CS-s mouses with all data is: ", sum(rowSums(Data_NA_counting_class6[,-1])==0))
+paste0("Number of t-SC-m mouses with all data is: ", sum(rowSums(Data_NA_counting_class7[,-1])==0))
+paste0("Number of t-SC-s mouses with all data is: ", sum(rowSums(Data_NA_counting_class8[,-1])==0))
+```
+
+# Task 2. Are there any differences in the level of BDNF_N production depending on the class in the experiment 
+
+    Option 1: Formation of classes through factors Genotype, Treatment, Behavior:
+
+```{r}
+mod_BDNF_N <- lm(BDNF_N ~ Genotype*Treatment*Behavior, data = Data_Cortex_Nuclear, contrasts = list(Genotype = contr.sum, Treatment = contr.sum, Behavior = contr.sum))
+```
+
+```{r}
+anova_BDNF_N <- Anova(mod_BDNF_N, type = "III")
+anova_BDNF_N
+```
+
+```{r message=FALSE, warning=FALSE}
+Data_Cortex_Nuclear$inter <- interaction(Data_Cortex_Nuclear$Genotype, Data_Cortex_Nuclear$Treatment, Data_Cortex_Nuclear$Behavior)
+fit_inter <- lm(BDNF_N ~ inter -1, data = Data_Cortex_Nuclear)
+Data_Cortex_Nuclear_tukey <- glht(fit_inter, linfct = mcp(inter= 'Tukey') )
+summary(Data_Cortex_Nuclear_tukey)
+```
+
+    Option 2: Differences between BDNF_N products depending directly on the "class" factor:
+
+```{r}
+anova_BDNF_N_class <- aov(BDNF_N ~ class, data = Data_Cortex_Nuclear)
+summary(anova_BDNF_N_class)
+```
+
+```{r}
+TukeyHSD(anova_BDNF_N_class)
+```
+
+Significant differences in expression were found between the groups:
+
+    c-SC-m and c-CS-m  p-value: 0.0000000
+    c-SC-s and c-CS-m  p-value: 0.0000981
+    t-CS-m and c-CS-m  p-value: 0.0000556
+    t-CS-s and c-CS-m  p-value: 0.0000005
+    t-SC-m and c-CS-m  p-value: 0.0242519
+    c-SC-m and c-CS-s  p-value: 0.0000000
+    c-SC-s and c-CS-s  p-value: 0.0000121
+    t-CS-m and c-CS-s  p-value: 0.0000066
+    t-CS-s and c-CS-s  p-value: 0.0000001
+    t-SC-m and c-CS-s  p-value: 0.0048645
+    c-SC-s and c-SC-m  p-value: 0.0014303
+    t-CS-m and c-SC-m  p-value: 0.0023090
+    t-SC-m and c-SC-m  p-value: 0.0000019
+    t-SC-s and c-SC-m  p-value: 0.0000000
+    t-SC-s and t-CS-s  p-value: 0.0228214
+
+Vizualisation:
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = Data_Cortex_Nuclear, aes(x = Data_Cortex_Nuclear$class, y = BDNF_N, 
+    fill = Data_Cortex_Nuclear$class)) + geom_boxplot() + xlab("Class") +
+  ylab("BDNF_N expression level") + labs(fill = "Class") + 
+  ggtitle("BDNF_N product level depending on class") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5)) + 
+  scale_fill_brewer(palette = "Spectral")
+```
+
+# Task 3. Try to build a linear model that can predict the level of production of the ERBB4_N protein based on data on other proteins in the experiment
+
+```{r}
+Data_with_proteins <- Data_Cortex_Nuclear[ ,sapply(Data_Cortex_Nuclear, is.numeric)]
+```
+
+```{r}
+full_model <- lm(ERBB4_N ~ ., Data_with_proteins)
+summary(full_model)
+```
+
+Conclusions: This model explains 84.27% of the data (F-statistic: 40.37, 476 degrees of freedom);
+
+## Diagnostics of the obtained linear model 
+
+### Checking the linearity of the relationship
+
+```{r}
+ggplot(data = full_model, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") + 
+  ggtitle("Linearity of the relationship") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+
+```
+
+Observations: Distribution of residuals is non-linear, some observations are outside +/- 2 standard deviations. Heteroscedasticity is also present (lack of variance constancy);
+
+### Checking influential observations
+
+```{r}
+simple_diag <- fortify(full_model)
+ggplot(full_model, aes(x = 1:nrow(simple_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red") +
+  labs(x = "Number of observation", y = "Cook distance") +  ggtitle("Cook distance plot") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+Observations: No value exceeds the conditional threshold of 2 units. No influential observations;
+
+### Checking for multicollinearity
+
+    vif (full_model) gives the error "Error in vif.default (full_model): there are aliased coefficients in the model", that is, there are multicolinear features;
+
+Let us examine all predictors for multicollinearity:
+
+```{r}
+alias(full_model)
+```
+
+Observations: pS6_N is multicollinear, exclude it from the linear model;
+
+```{r}
+new_model <- update(full_model, .~. - pS6_N) 
+vif(new_model)
+```
+
+Observations: all predictors have vif greater than 2, which indicates their multicollinearity;
+
+### Checking for normality of distribution and constancy of variance
+
+```{r}
+qqPlot(fortify(new_model)$.stdresid, main = "Normality of distribution of variance")
+```
+
+```{r}
+(shapiro.test(fortify(new_model)$.stdresid))$p.value
+```
+
+Observation: distribution of residues is not normal(p-value < 1.210656e-10);
+
+## Explain why this is a good / bad solution
+
+This model is "bad", because the predictors are multicollinear, to combat multicollinearity, you can use PCA (see next task);
+
+# Task 4. Make a PCA 
+
+Before doing PCA, I will deal with the missing values:
+
+```{r}
+sort(colSums(is.na(Data_Cortex_Nuclear)), decreasing = TRUE)
+```
+
+Delete proteins with > 150 missing values, because replacing missing values in such proteins may not be correct;
+
+```{r}
+Data_Cortex_Nuclear <- Data_Cortex_Nuclear[ ,!names(Data_Cortex_Nuclear) %in% c("BCL2_N","H3MeK4_N","BAD_N","EGR1_N","H3AcK18_N")]
+```
+
+```{r}
+table(rowSums(is.na(Data_Cortex_Nuclear)))
+```
+ 
+Delete rows with 43 missing values;
+
+```{r}
+Data_Cortex_Nuclear <- Data_Cortex_Nuclear[!rowSums(is.na(Data_Cortex_Nuclear)) == 43, ]
+```
+
+Replace the remaining missing values with the average for each of the proteins:
+
+```{r}
+na_replace <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+Data_withoutNA <- Data_Cortex_Nuclear %>% mutate_if(is.numeric, na_replace)
+table(rowSums(is.na(Data_withoutNA)))
+```
+
+```{r}
+mouse_pca <- rda(Data_withoutNA[,c(2:73)], scale = TRUE)
+```
+
+```{r}
+biplot(mouse_pca, scaling = "sites", display = "sites", main = "Principal component axis ordination")
+```
+
+And with ggplot2:
+
+  - by Genotype:
+  
+```{r}
+df_scores <- data.frame(Data_withoutNA,
+                        scores(mouse_pca, display = "sites", choices = c(1, 2, 3), scaling = "sites"))
+
+ggplot(df_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes( color = Genotype), alpha = 0.4) +
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2)) + 
+  ggtitle(label = "Principal component axis ordination")  + 
+  scale_fill_brewer(palette = "Spectral") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+    
+    - by Treatment:
+  
+```{r}
+df_scores <- data.frame(Data_withoutNA,
+                        scores(mouse_pca, display = "sites", choices = c(1, 2, 3), scaling = "sites"))
+
+ggplot(df_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes( color = Treatment), alpha = 0.4) +
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))  + 
+  ggtitle(label = "Principal component axis ordination")  + 
+  scale_fill_brewer(palette = "Spectral") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+   
+    - by Behavior:
+  
+```{r}
+df_scores <- data.frame(Data_withoutNA,
+                        scores(mouse_pca, display = "sites", choices = c(1, 2, 3), scaling = "sites"))
+
+ggplot(df_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes( color = Behavior), alpha = 0.4) +
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2)) + 
+  ggtitle(label = "Principal component axis ordination")  + 
+  scale_fill_brewer(palette = "Spectral") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+   
+    - by class:
+    
+```{r}
+df_scores <- data.frame(Data_withoutNA,
+                        scores(mouse_pca, display = "sites", choices = c(1, 2, 3), scaling = "sites"))
+
+ggplot(df_scores, aes(x = PC1, y = PC2)) + 
+  geom_point(aes( color = class), alpha = 0.4) +
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))  + 
+  ggtitle(label = "Principal component axis ordination")  + 
+  scale_fill_brewer(palette = "Spectral") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+## Plot factor loadings
+
+```{r}
+biplot(mouse_pca, scaling = "species", display = "species",  main = "Loadings plot")
+```
+
+Observation: it is noticeable that many factors are correlated;
+
+## Determine what percentage each component explains
+
+Directly numeric values:
+
+```{r}
+pca_summary <- summary(mouse_pca)
+pca_result <- as.data.frame(pca_summary$cont)
+plot_data <- as.data.frame(t(pca_result[c("Proportion Explained"),]))
+plot_data$PC <- paste("PC", 1 : nrow(plot_data))
+plot_data$component <- 1 : nrow(plot_data)
+head(plot_data[,-3])
+```
+
+And visualization:
+
+```{r}
+pca <- prcomp(Data_withoutNA[,c(2:73)], scale = TRUE)
+```
+
+    - for first ten components
+
+```{r}
+fviz_eig(pca, addlabels=TRUE, hjust = -0.3, main = "Proportion explained of first ten components")
+```
+    
+    - for all components
+
+```{r}
+ggplot(plot_data, aes(component, `Proportion Explained`)) + 
+  geom_bar(stat = "identity", position="stack", fill = "steelblue") + 
+  scale_y_continuous(labels = scales::percent) + geom_line() +
+  geom_point() + scale_x_continuous(breaks = 1:nrow(plot_data)) + 
+  xlab("Principal Component") + ylab("Proportion Explained") + 
+  ggtitle(label = "Proportion explained of each components")  + 
+  theme(axis.text.x = element_text(angle = 90), 
+        plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+    - another way to plot proportion explained of each components:
+
+```{r}
+exp_var = pca$sdev^2/sum(pca$sdev^2)*100
+new_df = data.frame(PC = 1:length(exp_var), exp_var)
+
+ggplot(new_df,aes(PC, exp_var)) + geom_bar(stat="identity",position="stack", 
+                                           fill = "steelblue") + geom_line() +
+  geom_point() + scale_x_continuous(breaks = 1:nrow(new_df)) + 
+  xlab("Principal Component") + ylab("Principal Component") + 
+  ggtitle(label = "Proportion explained of each components")  + 
+  theme(axis.text.x = element_text(angle = 90), 
+        plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+Using PCA to build a new linear model:
+
+```{r}
+df_PCA <- data.frame(Data_withoutNA,
+                        scores(mouse_pca, display = "sites", choices = c(1, 2, 3, 4), scaling = "sites"))
+PCA_model <- lm(ERBB4_N ~ PC1 +  PC2 + PC3 + PC4, df_PCA)
+summary(PCA_model)
+```
+
+```{r}
+vif(PCA_model)
+```
+
+Observation: no multicollinearity;
+
+```{r}
+ggplot(PCA_model, aes(x = 1:nrow(fortify(PCA_model)), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red") +
+  labs(x = "Number of observation", y = "Cook distance") +  ggtitle("Cook distance plot") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+Observations: No value exceeds the conditional threshold of 2 units. No influential observations;
+
+But:
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = PCA_model, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red") + 
+  ggtitle("Linearity of the relationship") + 
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+
+```
+Observations: Distribution of residuals is non-linear, some observations are outside +/- 2 standard deviations. Heteroscedasticity is also present (lack of variance constancy);
+
+```{r}
+qqPlot(fortify(PCA_model)$.stdresid, main = "Normality of distribution of variance")
+```
+
+```{r}
+(shapiro.test(fortify(PCA_model)$.stdresid))$p.value
+```
+
+Observation: distribution of residues is not normal(p-value < 1.756203e-09);
+
+## Build a 3D graph for the first 3 components
+
+```{r}
+m_pca <- princomp(Data_withoutNA[,c(2:73)], scores=T, cor=T)
+
+scores <- m_pca$scores
+PC1 <- scores[,1]
+PC2 <- scores[,2]
+PC3 <- scores[,3]
+
+p <- plot_ly() %>%
+  add_trace(x=PC1, y=PC2, z=PC3,
+            type="scatter3d", mode="markers",
+            marker = list(color = ifelse(Data_withoutNA$Behavior == 
+                                           "C/S", "#EBA232", "#3F96E3"), 
+               opacity = 0.4, size = 4)) %>% 
+  layout(scene = list(xaxis = list(title = 'PC1'),
+                     yaxis = list(title = 'PC2'),
+                     zaxis = list(title = 'PC3')),  title = "3D PCA")
+p
+```
+
+# Task 5.Finding Differential Proteins
+
+I use Limma
+
+1. Transpose data frame:
+
+```{r, message=FALSE, warning=FALSE}
+mice_transpose <- data.frame(t(Data_withoutNA[ ,sapply(Data_withoutNA,is.numeric)]))
+```
+
+2. Creating a design matrix:
+
+```{r message=FALSE, warning=FALSE}
+genotype <- model.matrix(~ Data_withoutNA$Genotype)
+behavior <- model.matrix(~ Data_withoutNA$Behavior)
+treatnent <- model.matrix(~ Data_withoutNA$Treatment)
+```
+
+
+3. A linear model:
+
+```{r message=FALSE, warning=FALSE}
+gfit <- lmFit(mice_transpose, genotype)
+bfit <- lmFit(mice_transpose, behavior)
+tfit <- lmFit(mice_transpose, treatnent)
+```
+
+```{r}
+gfit <- eBayes(gfit)
+bfit <- eBayes(bfit)
+tfit <- eBayes(tfit)
+```
+
+4. Tables of proteins statistics for all variables:
+
+```{r message=FALSE, warning=FALSE}
+# topTable(gfit) #for 10 proteins
+# topTable(bfit)
+# topTable(tfit)
+
+behav_stats <- topTable(bfit, number = dim(mice_transpose)[1], adjust.method = "BH")
+genotype_stats <- topTable(gfit, number = dim(mice_transpose)[1] , adjust.method = "BH")
+treat_stats <- topTable(tfit, number = dim(mice_transpose)[1], adjust.method = "BH")
+```
+
+```{r message=FALSE, warning=FALSE}
+paste0("Number of significant protein in Genotype subgroup: ", 
+       nrow(subset(genotype_stats, adj.P.Val <= 0.05 )))
+paste0("Number of significant protein in Behavior subgroup: ", 
+       nrow(subset(behav_stats , adj.P.Val <= 0.05 )))
+paste0("Number of significant protein in Treatment subgroup: ", 
+       nrow(subset(treat_stats, adj.P.Val <= 0.05 )))
+```
+
+4. Create df to volcanoplot
+
+```{r}
+df_limma_genotype <- data_frame(log2foldchange = genotype_stats$logFC, 
+                       qval = genotype_stats$adj.P.Val,
+                       gene_symbol = rownames(genotype_stats),
+                       is_significant = qval < 0.05) 
+df_limma_behav <- data_frame(log2foldchange = behav_stats$logFC, 
+                       qval = behav_stats$adj.P.Val,
+                       gene_symbol = rownames(behav_stats),
+                       is_significant = qval < 0.05) 
+df_limma_treat <- data_frame(log2foldchange = treat_stats$logFC, 
+                       qval = treat_stats$adj.P.Val,
+                       gene_symbol = rownames(treat_stats),
+                       is_significant = qval < 0.05) 
+```
+
+
+5. Volcano plot
+
+    -for Genotype
+    
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+color_type <- c("FALSE" = "#EBA232", "TRUE" = "#3F96E3")
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+ggplot(df_limma_genotype, aes(x = log2foldchange, y = -log10(qval), color = is_significant, label = gene_symbol)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_manual(values = color_type, name = "Significantly differentially expressed") +
+  geom_vline(xintercept=0, col="gray") +
+        geom_text_repel() +
+        geom_hline(yintercept=-log10(0.05), col="gray") +
+  labs(x = expression(log[2]~"(fold change)"),
+       y = expression(-log[10]~"(q-value)"),
+       title = "Differential expression in Genotype subgroup") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.5)) +
+        xlim(-1.5, 1.5) +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(linetype = 0.5, size = 2))
+```
+
+    -for Behavior
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+color_type <- c("FALSE" = "#EBA232", "TRUE" = "#3F96E3")
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+ggplot(df_limma_behav, aes(x = log2foldchange, y = -log10(qval), color = is_significant, label = gene_symbol)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_manual(values = color_type, name = "Significantly differentially expressed") +
+  geom_vline(xintercept=0, col="gray") +
+        geom_text_repel() +
+        geom_hline(yintercept=-log10(0.05), col="gray") +
+  labs(x = expression(log[2]~"(fold change)"),
+       y = expression(-log[10]~"(q-value)"),
+       title = "Differential expression in Behaviour subgroup") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.5)) +
+        xlim(-1.5, 1.5) +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(linetype = 0.5, size = 2))
+```
+    
+    -for Treatment
+    
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+color_type <- c("FALSE" = "#EBA232", "TRUE" = "#3F96E3")
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+ggplot(df_limma_treat, aes(x = log2foldchange, y = -log10(qval), color = is_significant, label = gene_symbol)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_manual(values = color_type, name = "Significantly differentially expressed") +
+  geom_vline(xintercept=0, col="gray") +
+        geom_text_repel() +
+        geom_hline(yintercept=-log10(0.05), col="gray") +
+  labs(x = expression(log[2]~"(fold change)"),
+       y = expression(-log[10]~"(q-value)"),
+       title = "Differential expression in Treatment subgroup") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.5)) +
+        xlim(-1.5, 1.5) +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(linetype = 0.5, size = 2))
+```
+
+
+# Addition 
+
+All mice will be divided into 2 groups: trained / not trained;
+
+In this study, mice from classes c-CS-s, c-CS-m, t-CS-m learned, the remaining classes (t-CS-s, t-SC-s, t-SC-m, c-SC- s, c-SC-m) did not learn during the research.
+
+```{r}
+Data_withoutNA$result <- ifelse((Data_withoutNA$class == "c-CS-s"|   
+                                 Data_withoutNA$class == "c-CS-m" |  
+                                 Data_withoutNA$class == "t-CS-m"), "ok","fail")
+Data_withoutNA$result <- as.factor(Data_withoutNA$result)
+```
+
+Let's check the hypothesis about the connection between the use of the drug and the result of the experiment:
+
+H0: the result of the experiment is not related to the use of the drug
+
+```{r}
+chisq.test(table(Data_withoutNA$result, Data_withoutNA$Treatment))
+```
+
+p-value < 0.05 - we reject the null hypothesis that the result of the experiment is not related to the use of the drug.
+
+We visualize this data:
+
+```{r}
+treatment_result <- table(Data_withoutNA$result, Data_withoutNA$Treatment)
+mosaicplot(treatment_result, shade = T)
+```
+
+
+As can be seen in the graph, there are more mice that did not learn during the experiment than mice that learned, while the mice that took Memantine were more likely to learn during the experiment than mice without the drug.
+
+Let's analyze the effect of electrical stimulation on the result of the experiment:
+
+H0: the result of the experiment is not related to electrical stimulation 
+
+```{r}
+chisq.test(table(Data_withoutNA$result, Data_withoutNA$Behavior))
+```
+
+p-value < 0.05 - reject the null hypothesis that the result of the experiment is not associated with electrical stimulation.
+
+
+```{r}
+stimul_result <- table(Data_withoutNA$result, Data_withoutNA$Behavior)
+mosaicplot(stimul_result, shade = T)
+```
+
+The graph shows that mice that were stimulated with an electric current are more likely to learn than mice without electrical stimulation.
+
+Differential expression based on experiment result
+
+```{r message=FALSE, warning=FALSE}
+res <- model.matrix(~ Data_withoutNA$result)
+rfit <- lmFit(mice_transpose, res)
+rfit <- eBayes(rfit)
+result_stats <- topTable(rfit, number = dim(mice_transpose)[1], adjust.method = "BH")
+df_limma_result <- data_frame(log2foldchange = result_stats$logFC, 
+                       qval = result_stats$adj.P.Val,
+                       gene_symbol = rownames(result_stats),
+                       is_significant = qval < 0.05) 
+```
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+color_type <- c("FALSE" = "#EBA232", "TRUE" = "#3F96E3")
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+ggplot(df_limma_result, aes(x = log2foldchange, y = -log10(qval), color = is_significant, label = gene_symbol)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_manual(values = color_type, name = "Significantly differentially expressed") +
+  geom_vline(xintercept=0, col="gray") +
+        geom_text_repel() +
+        geom_hline(yintercept=-log10(0.05), col="gray") +
+  labs(x = expression(log[2]~"(fold change)"),
+       y = expression(-log[10]~"(q-value)"),
+       title = "Differential expression in Result subgroup") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.5)) +
+        xlim(-1.5, 1.5) +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(linetype = 0.5, size = 2))
+```
+

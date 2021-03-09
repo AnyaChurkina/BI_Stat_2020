@@ -1,0 +1,403 @@
+---
+title: "Project_2"
+output:
+  html_document:
+    toc: TRUE
+    toc_position: right
+    toc_float: yes
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(MASS)
+library(ggplot2)
+require(RColorBrewer)
+require(data.table)
+require(readr)
+require(GGally)
+require(psych)
+require(ggpubr)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(car)
+library(gridExtra)
+theme_set(theme_bw())
+```
+
+### Обязательная часть
+
+```{r}
+data("Boston")
+```
+
+#### EDA
+
+#### Размер данных
+
+```{r}
+dim(Boston)
+```
+
+```{r}
+head(Boston)
+```
+
+#### Проверка пропущенных значений
+
+```{r}
+colSums(is.na(Boston))
+```
+
+Наблюдения: пропущенные значения отсутствуют
+
+#### Структура данных
+
+```{r}
+str(Boston)
+```
+
+Переменная chas - фактор, rad- дискретная, остальные переменные- количественные непрерывные;
+
+```{r}
+Boston$chas <- factor(Boston$chas)
+```
+
+Посмотрим на статистику по каждой переменной:
+
+```{r}
+summary(Boston)
+```
+
+Проверка на нормальность:
+
+```{r}
+sapply(Boston[-4], function(x) shapiro.test(x)$p.value)
+```
+
+Наблюдения:
+p-value всех переменных < 0.05, отклоняем нулевую гипотезу о нормальности распределения переменных;
+
+
+### 1. Постройте полную линейную модель, предварительно применив стандартизацию предикторов
+
+Для того, чтобы можно было оценить какие предикторы сильнее всего влияют на зависимую переменную в случае, когда все предикторы измерены в разной шкале, необходимо произвести стандартизацию переменных:
+
+```{r}
+scale_Boston <- as.data.frame(sapply(Boston[-4],scale))
+scale_Boston <- cbind(scale_Boston, Boston[4])
+```
+
+#### Полная модель со стандартизацей
+
+```{r}
+full_model <- lm(medv ~ ., scale_Boston)
+summary(full_model)
+```
+
+Выводы: Данная модель объясняете 73,38% данных (F-statistic: 108.1, 492 degrees of freedom)
+
+### 2. Диагностика полной модели
+
+#### Проверка линейности взаимосвязи
+
+```{r}
+gg_resid <- ggplot(data = full_model, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red")
+gg_resid
+```
+
+Наблюдения: Распределение остатков нелинейное, часть наблюдений выходят за пределы +/- 2 стандартных отклонения. Также присутствует гетероскедастичность (отсутстие постоянства дисперсии); 
+
+#### Проверка влиятельных наблюдений
+
+```{r}
+simple_diag <- fortify(full_model)
+ggplot(full_model, aes(x = 1:nrow(simple_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red")
+```
+
+Наблюдения: Ни одно значение не превышает условного порога в 2 единицы. Влиятельных наблюдений нет.
+
+#### Проверка на мультиколинеарность
+
+```{r}
+(full_model)
+```
+
+Мультиколинеарность отмечается (>2) у предикторов zn, indus, nox, age, dis, rad, tax, lstat;
+
+Визуализируем полученный результат с помощью матрицы корреляций (метод Спирмена, тк распределние переменных не нормально):
+
+```{r, fig.height=10, fig.width=10}
+corrplot.mixed(cor(scale_Boston[-14], method = "spearman"), number.cex = 1)
+```
+
+#### Проверка на нормальность распеределения и постоянство дисперсии
+
+```{r}
+qqPlot(simple_diag$.stdresid)
+```
+```{r}
+(shapiro.test(simple_diag$.stdresid))$p.value
+```
+
+Наблюдения: распределение остатков ненормальное (p-value < 8.648278e-18)
+
+### 3. График предсказаний стоимости от переменной, обладающей наибльшим по модулю коэфициентом
+
+Наибольший по модулю коэфициент-lstat(0.407447)
+
+Создадим новый датафрейм для предсказания:
+
+```{r}
+MyData <- data.frame(lstat = seq(min(scale_Boston$lstat), max(scale_Boston$lstat),
+                                 length.out = 506),
+  crim = mean(scale_Boston$crim),
+  zn = mean(scale_Boston$zn),
+  rad = median(scale_Boston$rad),
+  chas = (scale_Boston$chas),
+  indus = mean(scale_Boston$indus),
+  nox = mean(scale_Boston$nox),
+  rm = mean(scale_Boston$rm),
+  age = mean(scale_Boston$age),
+  dis = mean(scale_Boston$dis),
+  tax = mean(scale_Boston$tax),
+  ptratio = mean(scale_Boston$ptratio),
+  black = mean(scale_Boston$black))
+```
+
+Предсказанные значения:
+
+```{r}
+Predictions <- predict(full_model, newdata = MyData,  interval = 'confidence')
+MyData <- data.frame(MyData, Predictions)
+```
+
+График предсказания модели:
+
+```{r}
+Pl_predict <- ggplot(MyData, aes(x = lstat, y = fit, fill = chas)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line() + 
+  ggtitle("Множественная модель ")
+Pl_predict 
+```
+
+Сравним график предсказаний модели для предиктора lstat с графиком простой линейной модели. 
+
+```{r}
+Pl_predict <- ggplot(Boston, aes(x = lstat, y = medv, fill = chas)) +
+  geom_smooth(method = "lm", alpha = 0.2) 
+Pl_predict 
+```
+
+Наблюдения: Графики похожи, но не идентичны, так как  новая модель учитывает также влияние других переменных.
+
+### Дополнительная часть
+
+Поиск оптимальной модели:
+
+1. Уберем из модели пердикторы, обладающих мультиколлинеарностью:
+полная модель:
+
+```{r}
+vif(full_model)
+```
+
+Уберем предиктор с максимальным VIF, то есть предиктор tax:
+
+```{r}
+mod2 <- update(full_model, .~. - tax) 
+vif(mod2)
+```
+
+Следующим уберем nox:
+
+```{r}
+mod3 <- update(mod2, .~. - nox) 
+vif(mod3)
+```
+
+Убираем dis:
+
+```{r}
+mod4 <- update(mod3, .~. - dis) 
+vif(mod4)
+```
+
+Убираем lstat:
+
+```{r}
+mod5 <- update(mod4, .~. -lstat ) 
+vif(mod5)
+```
+
+Убираем rad:
+
+```{r}
+mod6 <- update(mod5, .~. -rad ) 
+vif(mod6)
+```
+
+Убираем indus:
+
+```{r}
+mod7 <- update(mod6, .~. -indus ) 
+vif(mod7)
+```
+
+Теперь у всех предикторов vif меньше 2.
+
+Отберем предикторы по значимости:
+
+```{r}
+drop1(mod7, test = "F")
+```
+
+Уберем предиктор zn:
+
+```{r}
+mod8 <- update(mod7, .~. - zn)
+drop1(mod8, test = "F")
+```
+
+Наблюдения: остались только занчимые предикторы
+
+Проведем диагностику новой модели: medv ~ crim + rm + age + ptratio + black + chas
+
+```{r}
+mod8_diag <- data.frame(fortify(mod8), scale_Boston[, c(2,3,4,7,8,9,12)])
+
+gg_resid <- ggplot(data = mod8_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red")
+gg_resid
+```
+
+```{r}
+ggplot(mod8_diag, aes(x = 1:nrow(mod8_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red")
+```
+```{r}
+qqPlot(mod8_diag$.stdresid)
+```
+Наблюдения: 
+Распределение остатков по-прежнему нелиенйное, влиятельные наблюдения отсутсвуют, распределение остатков ненормальное;
+
+Вернем предикторы, от коротых избавились на этапе vif с наибольшим влиянием на остатки:
+
+```{r, warning=FALSE, message=FALSE}
+res_1 <- gg_resid + aes(x = tax)
+res_2 <- gg_resid + aes(x = nox)
+res_3 <- gg_resid + aes(x = dis)
+res_4 <- gg_resid + aes(x = lstat)
+res_5 <- gg_resid + aes(x = rad)
+res_6 <- gg_resid + aes(x = indus)
+res_7 <- gg_resid + aes(x = zn)
+grid.arrange(res_1, res_2, res_3, res_4,res_5,res_6,res_7, nrow = 3)
+```
+
+
+```{r}
+mod9 <- update(mod8, .~. + lstat)
+drop1(mod9, test = "F")
+```
+
+```{r}
+mod10 <- update(mod9, .~. -age)
+drop1(mod10, test = "F")
+```
+
+```{r}
+mod11 <- update(mod10, .~. -crim)
+drop1(mod11, test = "F")
+```
+
+Диагностика модели:
+
+```{r}
+mod11_diag <- data.frame(fortify(mod11), scale_Boston[, c(1,2,3,4,6,7,8,9)]) 
+
+gg_resid <- ggplot(data = mod11_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red")
+gg_resid
+```
+
+```{r}
+ggplot(mod11_diag, aes(x = 1:nrow(mod11_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red")
+```
+
+```{r}
+qqPlot(mod11)
+```
+остатки стали более нормально распределены;
+
+Модель все еще не идеальная, попробуем улкчшить:
+
+Если посмтореть на распределение статистик по зависимым переменным из новой модели можно обнаружить, что в переменных ptratio  и black среднее значение сильно отличается от медианы, а также в переменных black и rm отмечается большое количество выбросов:
+
+
+```{r}
+summary(scale_Boston[, c(5, 10, 11)])
+```
+
+```{r}
+par(mfrow = c(1, 3))
+boxplot(scale_Boston$rm, main='rm')
+boxplot(scale_Boston$black, main='black')
+boxplot(scale_Boston$ptratio, main='ptratio')
+```
+
+Уберем эти переменные из модели и посмотрим как она изменится:
+
+```{r}
+mod12 <- update(mod11, .~. - black - rm)
+```
+
+```{r}
+summary(mod12)
+```
+
+```{r}
+mod12_diag <- data.frame(fortify(mod11), scale_Boston[, c(1,2,3,4,5,6,7,8,9,11)]) 
+
+gg_resid <- ggplot(data = mod12_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0) +
+  geom_smooth() +
+  geom_hline(yintercept = 2, color = "red") +
+  geom_hline(yintercept = -2, color = "red")
+gg_resid
+```
+
+```{r}
+ggplot(mod12_diag, aes(x = 1:nrow(mod12_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "red")
+```
+
+```{r}
+qqPlot(mod12_diag$.stdresid)
+```
+
+Наблюдения: исключение данных переменных не улучшили модель.
+
+Вероятнее всего для улучшения модели стоит рассматривать влияяние не только самих предикторов, но и взаимодействие этих приедикторов.
+
+
+
