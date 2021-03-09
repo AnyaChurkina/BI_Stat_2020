@@ -578,6 +578,7 @@ behavior <- model.matrix(~ Data_withoutNA$Behavior)
 treatnent <- model.matrix(~ Data_withoutNA$Treatment)
 ```
 
+
 3. A linear model:
 
 ```{r message=FALSE, warning=FALSE}
@@ -595,10 +596,10 @@ tfit <- eBayes(tfit)
 4. Tables of proteins statistics for all variables:
 
 ```{r message=FALSE, warning=FALSE}
-# topTable(ebayes_behavior) #for 10 proteins
-# topTable(ebayes_genotype)
-# topTable(ebayes_treatnent)
-# topTable(ebayes_class)
+# topTable(gfit) #for 10 proteins
+# topTable(bfit)
+# topTable(tfit)
+
 behav_stats <- topTable(bfit, number = dim(mice_transpose)[1], adjust.method = "BH")
 genotype_stats <- topTable(gfit, number = dim(mice_transpose)[1] , adjust.method = "BH")
 treat_stats <- topTable(tfit, number = dim(mice_transpose)[1], adjust.method = "BH")
@@ -699,8 +700,6 @@ ggplot(df_limma_treat, aes(x = log2foldchange, y = -log10(qval), color = is_sign
 
 # Addition 
 
-    This does not apply to proteins, just the results of the experiment are interesting.
-
 All mice will be divided into 2 groups: trained / not trained;
 
 In this study, mice from classes c-CS-s, c-CS-m, t-CS-m learned, the remaining classes (t-CS-s, t-SC-s, t-SC-m, c-SC- s, c-SC-m) did not learn during the research.
@@ -749,3 +748,36 @@ mosaicplot(stimul_result, shade = T)
 ```
 
 The graph shows that mice that were stimulated with an electric current are more likely to learn than mice without electrical stimulation.
+
+Differential expression based on experiment result
+
+```{r message=FALSE, warning=FALSE}
+res <- model.matrix(~ Data_withoutNA$result)
+rfit <- lmFit(mice_transpose, res)
+rfit <- eBayes(rfit)
+result_stats <- topTable(rfit, number = dim(mice_transpose)[1], adjust.method = "BH")
+df_limma_result <- data_frame(log2foldchange = result_stats$logFC, 
+                       qval = result_stats$adj.P.Val,
+                       gene_symbol = rownames(result_stats),
+                       is_significant = qval < 0.05) 
+```
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+color_type <- c("FALSE" = "#EBA232", "TRUE" = "#3F96E3")
+theme_set(cowplot::theme_cowplot(font_size = 12))
+
+ggplot(df_limma_result, aes(x = log2foldchange, y = -log10(qval), color = is_significant, label = gene_symbol)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_manual(values = color_type, name = "Significantly differentially expressed") +
+  geom_vline(xintercept=0, col="gray") +
+        geom_text_repel() +
+        geom_hline(yintercept=-log10(0.05), col="gray") +
+  labs(x = expression(log[2]~"(fold change)"),
+       y = expression(-log[10]~"(q-value)"),
+       title = "Differential expression in Result subgroup") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.5)) +
+        xlim(-1.5, 1.5) +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(linetype = 0.5, size = 2))
+```
+
