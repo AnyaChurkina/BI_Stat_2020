@@ -1,0 +1,524 @@
+---
+title: "Project_4"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_section: true
+---
+
+```{r, message = FALSE, warning=FALSE, echo=FALSE}
+require(survival)
+require(survminer)
+require(tidyr)
+require(ranger)
+require(psych)
+require(dplyr)
+require(ggplot2)
+require(ggfortify)
+require(coin)
+require(GGally)
+require(survminer)
+require(feasts)
+theme_set(theme_bw())
+```
+
+# Import dataset
+
+```{r}
+data("ovarian")
+```
+
+# EDA
+
+## Data structure
+
+```{r}
+dim(ovarian)
+```
+
+```{r}
+head(ovarian)
+```
+
+```{r}
+str(ovarian)
+```
+
+    All of variables type is numeric
+    But according to the meaning of the variables, some of them are not numeric:
+    - futime:	survival or censoring time
+    - fustat:	censoring status
+    - age:	in years
+    - resid.ds:	residual disease present (1=no,2=yes)
+    - rx:	treatment group
+    - ecog.ps:	ECOG performance status (1 is better, see reference)
+
+## Сonvert the type of variables to the correct type
+
+### Rename columns
+
+```{r}
+names(ovarian)[4] <- "resid_disease" 
+names(ovarian)[5] <- "treat_group" 
+names(ovarian)[6] <- "ecog_status" 
+```
+
+### Change type
+
+```{r}
+ovarian$resid_disease <- factor(ovarian$resid_disease, labels = c("No", "Yes"))
+ovarian$treat_group <- as.factor(ovarian$treat_group)
+ovarian$ecog_status <- as.factor(ovarian$ecog_status)
+```
+
+```{r echo=FALSE}
+str(ovarian)
+```
+
+
+## Check number of NA
+
+```{r}
+colSums(is.na(ovarian))
+table(rowSums(is.na(ovarian)))
+```
+
+    Dataset have no NA
+
+## Data analysis 
+
+```{r}
+ggplot(ovarian, aes(x=treat_group, fill=treat_group)) +
+  geom_bar(alpha=0.6)  + 
+  ggtitle("Count of patients in each treatment group") + 
+  xlab("Treatment group") + labs(fill = "Treatment group")+
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+```{r, echo=FALSE}
+paste0("Number of observations in 1 treatment group: ", nrow(subset(ovarian, treat_group==1)))
+paste0("Number of observations in 2 treatment group: ", nrow(subset(ovarian, treat_group==2)))
+```
+
+    In each treatment group the same number of observations
+
+```{r}
+ggplot(ovarian, aes(y=age, x=treat_group, fill=treat_group)) +
+  geom_boxplot(alpha=0.6)  + 
+  ggtitle("Box plot of age colored by treatment group") + 
+  xlab("Treatment group") + ylab("Age") + labs(fill = "Treatment group")+
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    In the first group of therapy there are wider range of ages, and in the second group mainly people aged ~ 55-60 years(with 1 outlier)
+    
+    
+```{r}
+ggplot(ovarian, aes(x=ecog_status, fill=ecog_status)) +
+  geom_bar(alpha=0.6)  + 
+  ggtitle("Count of patients in each group of ECOG performance status") + 
+  xlab("ECOG performance status") + labs(fill = "ECOG performance status")+
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.7))
+```
+
+```{r, echo=FALSE}
+paste0("Number of observations in 1 ECOG group: ", nrow(subset(ovarian, ecog_status==1)))
+paste0("Number of observations in 2 ECOG group: ", nrow(subset(ovarian, ecog_status==2)))
+```
+
+    Number of observations in '1' ECOG performance status more than in '2'
+
+```{r}
+ggplot(ovarian, aes(x=ecog_status, y=age, fill=ecog_status)) +
+  geom_boxplot(alpha=0.6)  + 
+  ggtitle("Box plot of age colored by ECOG performance status") + 
+  xlab("ECOG performance status") + ylab("Age") + 
+  labs(fill = "ECOG performance status") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.7))
+```
+    
+    In the first group of ECOG status there are wider range of ages, and in the second group mainly people aged ~ 60 years(and 3 outliers observed)
+    
+    
+```{r}
+ggplot(ovarian, aes(x=resid_disease, fill=resid_disease)) +
+  geom_bar(alpha=0.6)  + 
+  ggtitle("Count of patients in each group of residual disease present") + 
+  xlab("Residual disease present") + labs(fill = "Residual disease present")+
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.7))
+```
+
+```{r, echo=FALSE}
+paste0("Number of patients who presents residual disease: ", nrow(subset(ovarian, resid_disease=="Yes")))
+paste0("Number of patients without residual disease: ", nrow(subset(ovarian, resid_disease=="No")))
+```
+
+    Number of patients who presents residual disease more then patient without residual disease
+
+```{r}
+ggplot(ovarian, aes(x=resid_disease, y=age, fill=resid_disease)) +
+  geom_boxplot(alpha=0.6)  + 
+  ggtitle("Box plot of age colored by residual disease present") + 
+  xlab("Residual disease present") + ylab("Age") + 
+  labs(fill = "Residual disease present") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.7))
+```
+      
+      The age of people who presence residual disease is higher than people without residual disease
+      
+# Task 1. Kaplan Meier Survival Curve
+
+```{r}
+km <- with(ovarian, Surv(futime, fustat))
+head(km,26)
+```
+
+```{r}
+km_fit <- survfit(Surv(futime, fustat) ~ 1, data=ovarian)
+summary(km_fit)
+
+autoplot(km_fit) + 
+  ggtitle("Kaplan Meier survival curve") + 
+  xlab("Time (days)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+    
+    Human survival decreases over time, investigate what factors affect survival.
+    
+## Build a linear model that takes into account the change in survival based on a factors over time
+
+### Residual disease present
+
+```{r}
+km_fit_resid_disease <- survfit(Surv(futime, fustat) ~ resid_disease , 
+                                data=ovarian)
+summary(km_fit_resid_disease)
+
+autoplot(km_fit_resid_disease) + 
+  ggtitle("Kaplan Meier survival curve based on residual disease present") + 
+  xlab("Time (days)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    To visualize the statistical differences in survival between groups I use ggsurvplot:
+    
+```{r}
+ggsurvplot(km_fit_resid_disease, data = ovarian, xlab = "Time in days",
+   ylab = "Survival", pval=TRUE, conf.int = TRUE, ggtheme = theme_bw(), 
+   legend.labs = c("No", "Yes"),
+   legend = "right", linetype = 1, 
+   title = "Kaplan Meier survival curve based on residual disease present") 
+```
+  
+    Observed that the survival rate of people with residual disease is lower than without them
+    The obtained p-value, I'll check it with log-rank test in the future (see Task 2)
+    
+### Treatment group
+
+```{r}
+km_fit_trt <- survfit(Surv(futime, fustat) ~ treat_group , 
+                                data=ovarian)
+summary(km_fit_trt)
+
+autoplot(km_fit_trt) + 
+  ggtitle("Kaplan Meier survival curve based on treatment group") +
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    And ggsurvplot with p-value:
+    
+```{r}
+ggsurvplot(km_fit_trt, data = ovarian, xlab = "Time in days",
+   ylab = "Survival", pval=TRUE, conf.int = TRUE, ggtheme = theme_bw(), 
+   legend.labs = c("1", "2"),
+   legend = "right", linetype = 1, 
+   title = "Kaplan Meier survival curve based on treatment group") 
+```
+    
+    It's noticeably that the survival rate of people in first treatment group is lower than in second group
+    
+###  ECOG performance status
+
+```{r}
+km_fit_ecog <- survfit(Surv(futime, fustat) ~ ecog_status , 
+                                data=ovarian)
+summary(km_fit_ecog)
+
+autoplot(km_fit_ecog) + 
+  ggtitle("Kaplan Meier survival curve based on ECOG performance status") +
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    And ggsurvplot with p-value:
+    
+```{r}
+ggsurvplot(km_fit_ecog, data = ovarian, xlab = "Time in days",
+   ylab = "Survival", pval=TRUE, conf.int = TRUE, ggtheme = theme_bw(), 
+   legend.labs = c("1", "2"),
+   legend = "right", linetype = 1, 
+   title = "Kaplan Meier survival curve based on ECOG performance status") 
+```
+    
+    It's noticeably that the survival rate of people with ECOG performance status-2 is lower than ECOG performance status-1
+    
+### Divide patients by age, under 60 years old and over 60 years old
+
+    Because mean and median of age is 56.17 and 56.85 years old, the age of separation (60 years) will take a little more than these values
+    
+```{r}
+describe(ovarian$age)
+```
+
+```{r}
+ovarian_by_age <- mutate(ovarian, age_60 = ifelse((age < 60), 
+                                                  "Under60", "Over60"),
+              age_60 = factor(age_60))
+```
+
+```{r}
+km_age_fit <- survfit(Surv(futime, fustat) ~ age_60 , 
+                                data=ovarian_by_age)
+summary(km_fit_ecog)
+
+ggsurvplot(km_age_fit, data = ovarian_by_age, xlab = "Time in days",
+   ylab = "Survival", pval=TRUE, conf.int = TRUE, ggtheme = theme_bw(), 
+   legend.labs = c("Over 60", "Under 60"),
+   legend = "right", linetype = 1, 
+   title = "Kaplan Meier survival curve based on age(60 years)")
+```
+
+    It can be noted that the survival rate of patients under the age of 60 is higher than that of patients over 60 (p-value < 0.05)
+    
+### Create hybrid factor: age60 + treatment group
+
+```{r}
+ovarian_by_age$age_treat <- paste(ovarian_by_age$age_60, 
+                                           ovarian_by_age$treat_group)
+ovarian_by_age$age_treat <- as.factor(ovarian_by_age$age_treat)
+```
+
+#### Number of observations in each group
+
+```{r}
+ovarian_by_age %>% count(age_treat)
+```
+
+```{r}
+km_age_treat_fit <- survfit(Surv(futime, fustat) ~ 
+                              age_treat, data=ovarian_by_age)
+autoplot(km_age_treat_fit) + 
+  ggtitle("Kaplan Meier survival curve based on age(60 years) and treatment") + 
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=12, face="bold", hjust = 0.7))
+```
+    
+    It can be noted that the survival rate for people under 60 years is higher in treatment group 2 than in group 1.
+    In people over 60 years old, the opposite picture is observed - survival rate in group 1 is higher than in group 2
+    
+### Create hybrid factor: age60 + ECOG performance status
+
+```{r}
+ovarian_by_age$age_ecog <- paste(ovarian_by_age$age_60, 
+                                           ovarian_by_age$ecog_status)
+ovarian_by_age$age_ecog <- factor(ovarian_by_age$age_ecog)
+```
+
+#### Number of observations in each group
+
+```{r}
+ovarian_by_age %>% count(age_ecog)
+```
+
+```{r}
+km_age_ecog_fit <- survfit(Surv(futime, fustat) ~ 
+                              age_ecog, data=ovarian_by_age)
+autoplot(km_age_ecog_fit) + 
+  ggtitle("Kaplan Meier survival curve based on age(60 years) and ECOG performance status") + 
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=10, face="bold", hjust = 0.7))
+```
+
+    Observed that in all groups of age (under and over 60) survival rate with ECOG performance status=1 higher than ECOG performance status=2
+
+### Create hybrid factor: age60 + residual disease present
+
+```{r}
+ovarian_by_age$age_resid <- paste(ovarian_by_age$age_60, 
+                                           ovarian_by_age$resid_disease)
+ovarian_by_age$age_resid <- factor(ovarian_by_age$age_resid)
+```
+
+#### Number of observations in each group
+
+```{r}
+ovarian_by_age %>% count(age_resid)
+```
+
+    Autoplot can't plot survival plots in case with 1 number of observations in group, let's plot it with ggsurvplot
+
+```{r}
+km_age_resid_fit <- survfit(Surv(futime, fustat) ~ 
+                              age_resid, data=ovarian_by_age)
+
+ggsurvplot(km_age_resid_fit, data = ovarian_by_age, xlab = "Time in days",
+   ylab = "Survival", conf.int = TRUE, ggtheme = theme_bw(), legend.labs =
+    c("Over60 No", "Over60 Yes", "Under60 No", "Under60 Yes"),legend = "right",
+   linetype = 1, 
+   title = "Kaplan Meier survival curve based on age(60 years) 
+   and residual disease present") 
+```
+
+    The survival rate for people under 60 years with residual disease is lower than for people without residual disease
+    In people over 60 years old survival rate with residual disease is higher than for people without residual disease
+    
+    
+# Task 2. Which groups differ in terms of survival
+
+## Between residual disease present
+
+```{r}
+survdiff(Surv(futime, fustat) ~ resid_disease, data = ovarian)
+logrank_test(Surv(futime, fustat) ~ resid_disease, data = ovarian)
+```
+
+    Conclusion: survival between groups: residual disease present does not differ:
+        - survdiff: Chisq= 3.6  on 1 degrees of freedom, p-value = 0.06 
+        - logrank_test: Z = 1.9234, p-value = 0.05444
+    
+    
+## Between treatment group
+
+```{r}
+survdiff(Surv(futime, fustat) ~ treat_group, data = ovarian)
+logrank_test(Surv(futime, fustat) ~ treat_group, data = ovarian)
+```
+
+
+    Conclusion: survival between treatment group does not differ
+        - survdiff: Chisq= 1.1  on 1 degrees of freedom, p-value = 0.3 
+        - logrank_test: Z = -1.0296, p-value = 0.3032
+    
+## Between ECOG performance status
+
+```{r}
+survdiff(Surv(futime, fustat) ~ ecog_status, data = ovarian)
+logrank_test(Surv(futime, fustat) ~ ecog_status, data = ovarian)
+```
+
+    Conclusion: survival between group ECOG performance status does not differ:
+        - survdiff: Chisq= 0.5, 1 degrees of freedom, p-value = 0.5
+        - logrank_test: Z = 0.69106, p-value = 0.4895
+    
+## Between age (60 years)
+
+```{r}
+survdiff(Surv(futime, fustat) ~ age_60, data = ovarian_by_age)
+logrank_test(Surv(futime, fustat) ~ age_60, data = ovarian_by_age)
+```
+
+    Conclusion: survival between group over and under 60 years significantly different:
+        - survdiff: Chisq= 17.1  on 1 degrees of freedom, p-value = 4e-05
+        - logrank_test: Z = -2.9778, p-value = 0.002903
+        
+# Task 3. Assess the factors that influence the risk and assess the risk ratio 
+
+## Analysis of factors affecting survival (Cox model).
+
+```{r, message= FALSE}
+cox <- coxph(Surv(futime, fustat) ~ age + resid_disease + treat_group +
+               ecog_status, data = ovarian)
+summary(cox)
+
+cox_fit <- survfit(cox)
+
+autoplot(cox_fit) + 
+  ggtitle("Influence of all factors to survival (Cox model)") + 
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    Conclusion: of all predictors, only the variable age significantly affects to survival (p-value = 0.00777)
+    
+## Carry out a covariance analysis to study possible changes in the parameters and their influence over time
+
+```{r message=FALSE, warning=FALSE}
+cov_fit <- aareg(Surv(futime, fustat) ~ age + resid_disease + treat_group +
+               ecog_status, data = ovarian)
+autoplot(cov_fit)
+```
+
+    It is noticeable that with increasing age, the present of residual disease increases
+
+## Hazard Ratio 
+
+```{r}
+fit_coxph <- coxph(Surv(futime, fustat) ~ age + resid_disease + treat_group +
+               ecog_status, data = ovarian)
+ggforest(fit_coxph, data = ovarian)
+```
+
+    Conclusion: as in Cox model of all predictors, only the variable age significantly affects to survival (p-value = 0.008)
+    
+## Random forest
+
+```{r}
+# ranger model
+random_fit <- ranger(Surv(futime, fustat) ~ age + resid_disease + treat_group +
+               ecog_status, data = ovarian,
+                     mtry = 4,
+                     importance = "permutation",
+                     splitrule = "extratrees",
+                     verbose = TRUE)
+
+# Average the survival models
+death_times <- random_fit$unique.death.times 
+surv_prob <- data.frame(random_fit$survival)
+avg_prob <- sapply(surv_prob,mean)
+
+# Plot the survival models for each patient
+plot(random_fit$unique.death.times,random_fit$survival[1,], 
+     type = "l", 
+     ylim = c(0,1),
+     col = "red",
+     xlab = "Time (days)",
+     ylab = "survival",
+     main = "Patient Survival Curves")
+
+cols <- colors()
+for (n in sample(c(2:dim(ovarian)[1]), 20)){
+  lines(random_fit$unique.death.times, random_fit$survival[n,], type = "l", col = cols[n])
+}
+lines(death_times, avg_prob, lwd = 2)
+legend("bottomleft", legend = c('Average = black'))
+```
+
+## Comparison of survival charts of all methods
+
+```{r}
+km <- rep("Kaplan Meier",length(km_fit$time))
+km_df <- data.frame(km_fit$time,km_fit$surv,km)
+names(km_df) <- c("Time","Surv","Model")
+
+cox <- rep("Cox",length(cox_fit$time))
+cox_df <- data.frame(cox_fit$time,cox_fit$surv,cox)
+names(cox_df) <- c("Time","Surv","Model")
+
+rf <- rep("Random forest",length(random_fit$unique.death.times))
+rf_df <- data.frame(random_fit$unique.death.times,avg_prob,rf)
+names(rf_df) <- c("Time","Surv","Model")
+
+plot_df <- rbind(km_df,cox_df,rf_df)
+
+p <- ggplot(plot_df, aes(x = Time, y = Surv, color = Model))
+p + geom_line() + 
+  ggtitle("Comparison of survival charts of all models") + 
+  xlab("Time (day)") + ylab("Survival") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+    Conclusion: all models present similar survival results
+    

@@ -1,0 +1,445 @@
+---
+title: "Poject_1: How old the mussel is"
+output:
+  html_document:
+    toc: TRUE
+    toc_position: right
+    toc_float: yes
+---
+
+```{r, message = FALSE}
+require(dplyr)
+require(ggplot2)
+require(RColorBrewer)
+require(data.table)
+require(readr)
+require(GGally)
+require(psych)
+require(ggpubr)
+theme_set(theme_bw())
+```
+
+### 1. Create a function
+
+```{r}
+data_from_dir <- function(absolut_path_to_dir){
+   data <- 
+     rbindlist(lapply(list.files(path = absolut_path_to_dir, pattern = "\\.csv$", 
+                                       full.names = TRUE), fread))
+}
+mollusk_data <- 
+  data_from_dir("/Users/annachurkina/Documents/Bioinformatics2020/R/R_bioinformatic/Data")
+```
+
+### 2. EDA
+
+I decided to make the last point of task 2, because I'd like to work with correct data before looking at any relationships.
+
+#### Data structure
+
+```{r}
+str(mollusk_data)
+```
+
+#### Basic statistics of all parameters
+
+```{r}
+describe(mollusk_data)
+```
+
+It's noted that in some values the number of observations is less than 4177, let's check the number of missing:
+
+```{r}
+colSums(is.na(mollusk_data))
+```
+
+I delete the rows with missing values, because their total number will not affect the overall statistics, and in the Sex variable it is not possible to replace the character variable with the mean/median/mode (logically);
+
+```{r}
+mollusk_data <- na.omit(mollusk_data)
+```
+
+```{r}
+describe(mollusk_data)
+```
+
+Also we can notice that some parameters have a type that doesn't correspond to the real data type for this variable.
+
+So, let's try to fix it.
+
+1. Rings (the number of rings) is a character variable, but logically it should be numeric, let's check what's wrong with it:
+
+Let's check if all values in this variable are numeric:
+
+```{r, warning = FALSE}
+mollusk_data[(!(is.na(as.numeric(mollusk_data$Rings)))) == FALSE,]
+```
+
+Conclusion: In one row the value is written by text.
+
+Replace it with a number.
+
+```{r}
+mollusk_data$Rings <- replace(mollusk_data$Rings, mollusk_data$Rings == 'nine', 9)
+mollusk_data$Rings <- as.numeric(mollusk_data$Rings)
+```
+
+So, Rings is a numeric variable now.
+
+2. Let's repeat the same analysis for the variable 'Sex':
+
+```{r , warning = FALSE}
+mollusk_data[(!(is.na(
+  as.numeric(mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)`)))) == FALSE,]
+```
+
+Conclusion: This variable has three values written by text.
+
+I change the text to a number, according to the condition: 1 – male, 2 – female, 3 – uvenil.
+
+```{r}
+mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` <- 
+  replace(mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)`, 
+          mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` == 'three', 3)
+mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` <- 
+  replace(mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)`, 
+          mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` == 'one', 1)
+mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` <- 
+  replace(mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)`, 
+          mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` == 'male', 1)
+mollusk_data$`Sex (1 – male, 2 – female, 3 – uvenil)` <- 
+  factor(mollusk_data$Sex, labels = c("male","female","uvenil"))
+colnames(mollusk_data)[colnames(mollusk_data) == 
+                         'Sex (1 – male, 2 – female, 3 – uvenil)'] <- 'Sex'
+```
+
+3. Repeat the same analysis for the variable Length:
+
+```{r, warning = FALSE}
+mollusk_data[(!(is.na(as.numeric(mollusk_data$Length)))) == FALSE,]
+```
+
+A value that is not a numeric substitute for the median for "uvenil" mollusks. I use the median(not mean or mode) because median is more correct parameter for biological data:
+
+```{r}
+mollusk_data$Length <- replace(mollusk_data$Length, 
+                               mollusk_data$Length == 
+                                 'No data! I forgot to mesure it!(',
+                               mollusk_data %>% filter(Sex == "uvenil") %>% 
+                                 summarise(median(Length)))
+mollusk_data$Length <- as.numeric(mollusk_data$Length)
+```
+
+Let's check summary statistics and the number of missing values when all the variables correspond to the correct types and NA was deleted:
+
+```{r}
+str(mollusk_data)
+```
+
+```{r}
+describe(mollusk_data)
+```
+
+```{r}
+colSums(is.na(mollusk_data))
+```
+
+Conclusion: all variables except Sex are numeric, basic statistical parameters are calculated correctly, missing values are missing. 
+Such data are correct for further analysis.
+
+#### Visualize variables for outliers
+
+Select only numeric variables:
+
+```{r}
+numeric_variable <- mollusk_data %>% select_if(is.numeric)
+```
+
+To visualize the outliers, I built qqplot and pairs scatterplot for all numeric variables:
+
+```{r, message=FALSE}
+my_qqplot <- function(name){
+  ggplot(numeric_variable, mapping = aes_string(sample=name)) +  
+    stat_qq() + stat_qq_line()+
+    ggtitle(paste0("qqplot to visualize the outliers in ", name, " variable"))
+}
+lapply(names(numeric_variable), my_qqplot)
+```
+
+Conclusion: on these graphs it is noticeable that the distributed of these variables arу not normal, and in the variable Height observe some outliers. 
+
+```{r fig.height=10, fig.width=15, message=FALSE, warning=FALSE}
+ggpairs(mollusk_data, c(2,1,3:9), mapping = aes(color = Sex, alpha = 0.5), 
+        upper = list(continuous = wrap("cor", method = "spearman", size = 4))) +
+  theme(plot.title = element_text(size = 20)) +
+    ggtitle("Pairs scatterplot for all numeric varisbles separeted by Sex")
+```
+
+Or split the scatterplot into two parts for clarity:
+
+```{r message=FALSE, warning=FALSE}
+ggpairs(mollusk_data, c(2,1,3:5), mapping = aes(color = Sex, alpha = 0.5), 
+        upper = list(continuous = wrap("cor", method = "spearman", size = 2.5))) +
+  theme(axis.text = element_text(size = 6)) +
+    ggtitle("Pairs scatterplot for Rings, Lenght, Diameter and Height separeted by Sex")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggpairs(mollusk_data, c(2,6:9), mapping = aes(color = Sex, alpha = 0.5), 
+        upper = list(continuous = wrap("cor", method = "spearman", size = 2.5))) +
+  theme(axis.text = element_text(size = 6)) +
+    ggtitle("Pairs scatterplot for Whole, Shucked, Vescera and Shell weight separeted by Sex")
+```
+
+Conclusion: No significant outliers are observed in all variables, but variable Height has some outliers.
+
+Let's see to the general statistics from this variable and to the boxplot:
+
+```{r}
+describe(mollusk_data$Height)
+```
+
+```{r}
+ggplot(mollusk_data, aes(y = Height, x = Sex, color = Sex)) +   
+                            geom_boxplot() +
+    ggtitle("Boxplot of Height variable separated by Sex to visualize outliers")
+```
+
+Conclusion: I think that the variable Height can't have a value = 0, and a value of Height = 1.13 in female mollusk (it`s much greater for this type if mollusks). And one mollusk has Height = 0.515 - it's too much too, but its other parameter is high too, so I think that the value of Height in its mollusk is not error.
+
+I decide to delete the rows which contain value of Height = 0, and = 1.13:
+
+```{r}
+mollusk_data <- 
+  mollusk_data[!(mollusk_data$Height == 0 | mollusk_data$Height == 1.13),]
+```
+
+#### Assessing the presence of relationships between variables
+
+Firstly, its necessary to check all variables distribution to normality:
+
+```{r}
+lapply(mollusk_data[ ,-2], shapiro.test)   
+```
+ 
+Conclusion: p-value in all if numeric variables is low than 0.05. We can reject a H0 hypothesis of the normal distribution;
+The distribution this variables is abnormal, which confirms our observations on the qqplots;
+
+I will illustrate the interaction of variables using a pairwise scatterplot, as well as calculating the Spearman's correlation coefficient:
+
+```{r}
+panel.cor <- function(x, y){
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- round(cor(x, y, method = "spearman"), digits=2)
+    txt <- paste0("R = ", r)
+    cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+
+upper.panel<-function(x, y){
+  points(x,y, pch = 19, cex = 0.5)
+}
+         
+pairs(mollusk_data[, -2], upper.panel = upper.panel , lower.panel = panel.cor, 
+      main ="Pairs scatterplot for numeric variable", line.main=1.5, oma=c(3,3,3,3))
+```
+
+```{r}
+ggcorr(mollusk_data[,-2], method = c("all.obs", "spearman"), geom = "blank", 
+                    label = TRUE, hjust = 0.75) +
+  geom_point(size = 10, aes(color = coefficient > 0, 
+                            alpha = abs(coefficient) > 0.5)) +
+  scale_alpha_manual(values = c("TRUE" = 0.25, "FALSE" = 0)) +
+  guides(color = FALSE, alpha = FALSE)+
+  ggtitle("Spearman correlation coeficient beetwen numeric variable")
+```
+
+Conclusion: In pairwise scatterplots, there is a noticeable relationship between numeric variables.
+R-Spearman's correlation coefficient also indicates a strong positive relationship between the variables;
+
+### 3. Calculate the mean and standard deviation of the Length variable for molluscs by different sexes.
+
+```{r, message=FALSE}
+mollusk_data %>% group_by(Sex) %>% 
+  summarise(mean_Length = mean(Length), sd_Length = sd(Length))
+```
+
+### 4. What percentage of molluscs has Height less than 0.165?
+
+```{r}
+(nrow(mollusk_data %>% filter(Height < 0.165))*100)/nrow(mollusk_data)
+```
+
+### 5. What is the Length variable greater than 92% of all observations?
+
+```{r}
+quantile(mollusk_data$Length, probs = 0.92)
+```
+
+### 6. Create a new variable 'Lenght_z_scores' and store the Length variable into it after standardizing it.
+
+```{r}
+Lenght_z_scores <- scale(mollusk_data$Length)
+```
+
+### 7. Compare the diameter of the molluscs with the number of rings 5 and 15.
+
+Create a dataframe which will contain information only about mollusks with the number of rings = 5 and 15:
+
+```{r}
+Rings_5_15 <- mollusk_data %>% filter(Rings == 5 | Rings == 15)
+```
+
+```{r}
+Rings_5_15$Rings_count <- 
+  replace(Rings_5_15$Rings, Rings_5_15$Rings == 5, 'five')
+Rings_5_15$Rings_count <- 
+  replace(Rings_5_15$Rings_count, Rings_5_15$Rings_count == 15, 'fifteen')
+```
+
+```{r}
+ggplot(Rings_5_15, aes(Rings_count, Diameter, color = Sex))+  
+  geom_boxplot(outlier.shape = NA)+  
+  geom_jitter(width = 0.2)+  
+  ggtitle("Compare the diameter of the mollusks with the number of rings 5 and 15")+
+  ylab("Diameter") + xlab("Count of rings")
+```
+
+Conclusion: It can be seen from these graph that the diameter of the mollusk differs between mollusk with the number of rings of 5 and 15.
+
+Let's calculate the value of statistics:
+
+```{r}
+t.test(Diameter~Rings_count, Rings_5_15)
+```
+
+Conclusion: p-value < 0.05, we can reject the null hypothesis of equality of means of Diameter between the two groups (Rings 5 and Rings 15)
+
+Visualize it by plotting the mean and 95 confidence interval, where you can see non-overlapping plots, which also confirms a significant difference between Diameters in the study groups:
+
+```{r}
+ggerrorplot(Rings_5_15, 
+            x = "Rings_count", y = "Diameter",  
+            desc_stat = "mean_ci", ci = 0.95) +
+            ggtitle("Mean and 95 ci of the mollusks with the number of rings 5 and 15") +
+  theme_bw()
+```
+
+
+### 8. We are especially interested in the Diametr and Whole_weight variables. What can you say about them?
+
+```{r, message=FALSE}
+ggplot(mollusk_data, aes(Diameter^3, Whole_weight)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm")+
+  ggtitle("Relationship of Diameter and Whole weight variables")+
+  xlab("Diameter") + ylab("Whole weight")
+```
+
+Conclusion: You may notice an increase in mass as the diameter of the mollusk increases.
+
+This relationship is observed for mollusks of both sexes and ages.
+
+```{r, message=FALSE}
+ggplot(mollusk_data, aes(Diameter^3, Whole_weight)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ Sex)+
+  ggtitle("Relationship of Diameter and Whole weight variables in each Sex group")+
+  xlab("Diameter") + ylab("Whole weight")
+```
+
+Since the distribution of this to variables is not normal for assessing the relationship between variables I use the Spearman's correlation coefficient:
+
+```{r, warning=FALSE}
+cor.test(mollusk_data$Whole_weight, mollusk_data$Diameter, method = "spearman")
+```
+
+Conclusion: according to the values of statistics, we can say that these two variables have a reliably significant(p < 0.05) positive(rho = 0.9714636) relationship;
+
+### 9. Additionally
+
+#### Sex and age of molluscs:
+
+When analyzing the differences in diameter when the rings are 5 and 15, you can see some inhomogeneities when separating by sex
+
+```{r}
+ggplot(Rings_5_15, aes(Rings_count, Diameter,color = Sex))+  
+  geom_boxplot(outlier.shape = NA)+  
+  geom_jitter(width = 0.2)+  
+  ggtitle("Compare the diameter of the mollusks with the number of rings 5 and 15")+
+  ylab("Diameter") + xlab("Count of rings")
+```
+
+So, most of the mollusks with the number of rings of 15 are males and females, but there are also uvenil. A similar situation with the number of rings equal to 5, among them there are males and females. 
+Therefore, it seems to me that the most correct division would be division by age and sex.
+
+#### Hidden differences in densityplot and boxplot(unexpected finds :):
+
+On scatterplots and histograms, you can notice that "uvenil" mussels have smaller dimensions than adults. As for the difference between the sexes, there are no visual differences:
+
+```{r error=FALSE, message=FALSE, warning=FALSE}
+ggpairs(mollusk_data, c(2,1,3:5), mapping = aes(color = Sex, alpha = 0.5), 
+        upper = list(continuous = wrap("cor", method = "spearman", size = 2.5))) +
+  theme(axis.text = element_text(size = 6)) +
+    ggtitle("Pairs scatterplot for Rings, Lenght, Diameter and Height separeted by Sex")
+```
+
+1. Variable-Diameter
+
+```{r}
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(Diameter, group = Sex)) +
+  geom_density(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Density plot for diameter varialbe for male and female mollusks")
+
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(y = Diameter, x = Sex)) +
+  geom_boxplot(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Boxplot for diameter varialbe for male and female mollusks")
+```
+
+2. Variable-Length
+
+```{r}
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(Length, group = Sex)) +
+  geom_density(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Density plot for Length varialbe for male and female mollusks")
+
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(y = Length, x = Sex)) +
+  geom_boxplot(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Boxplot for Length varialbe for male and female mollusks")
+```
+
+3. Variable-Height 
+
+```{r}
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(Height, group = Sex)) +
+  geom_density(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Density plot for diameter Height for male and female mollusks")
+
+ggplot(mollusk_data[mollusk_data$Sex != "uvenil",], aes(y = Height, x = Sex)) +
+  geom_boxplot(aes(fill = Sex), alpha = 0.5) +
+  ggtitle("Boxplot for Height varialbe for male and female mollusks")
+```
+
+But the t-test indicates that there is a statistically significant difference between the groups:
+
+```{r}
+lapply(mollusk_data[mollusk_data$Sex != "uvenil", c(3, 4, 5)], 
+       function (x) t.test(x~Sex, mollusk_data[mollusk_data$Sex != "uvenil",]))
+```
+
+Conclusion: So, this indicates that visually we cannot always notice the differences between the groups.
+
+And finally, visualize the difference by graphics of mean and 95CI
+
+```{r}
+mean_cl_plot <- function(name){
+  ggerrorplot(mollusk_data[mollusk_data$Sex != "uvenil",], 
+            x = "Sex", y = name,  
+            desc_stat = "mean_ci", ci = 0.95) +
+            ggtitle(paste0("Mean and 95 ci for ", name, " varialbe of the male and female mollusks")) +
+  theme_bw()
+}
+lapply(names(mollusk_data[mollusk_data$Sex != "uvenil", c(3, 4, 5)]), mean_cl_plot)
+```
