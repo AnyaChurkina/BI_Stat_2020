@@ -1,0 +1,343 @@
+---
+title: "Project Log regression"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_section: true
+---
+
+```{r, message = FALSE, warning=FALSE, echo=FALSE}
+library(ggplot2)
+library(dplyr)
+library(car)
+theme_set(theme_bw())
+```
+
+A researcher is interested in how variables, such as GRE (Graduate Record Exam scores), GPA (grade point average) and prestige of the undergraduate institution, affect admission into graduate school.
+    
+# Import data
+
+```{r}
+df <- read.csv("binary.csv")
+```
+
+# EDA
+
+## Looking at the structure of the dataset
+
+```{r}
+dim(df)
+```
+
+```{r}
+head(df)
+```
+
+```{r}
+str(df)
+```
+
+This dataset has 4 variables: 
+    - one binary variable - admit; 
+    - the variable "admit" takes on the values 0 or 1;
+    - three predictor variables: gre, gpa, rank:
+        1. GRE (Graduate Record Exam scores)
+        2. GPA (grade point average)
+        3. Rank - prestige of the undergraduate institution
+    - "gre" and "gpa" variables are numeric;
+    - the variable "rank" takes on the values 1 through 4; 
+    - variables "admit" and "rank" are of type numeric but they should be a factor;
+
+```{r}
+# Change type of variables "admit" and "rank" to factor
+df$admit <- as.factor(df$admit)
+df$rank <- as.factor(df$rank)
+```
+
+## Check number of NA
+
+```{r}
+colSums(is.na(df))
+table(rowSums(is.na(df)))
+```
+
+There are no missing values(NAs).
+
+## Summary statistics
+ 
+```{r}
+summary(df)
+```
+
+It can be observed a disbalance between the number of observations in groups "admit"
+    
+```{r}
+ggplot(df, aes(admit, gre, fill=admit)) + geom_boxplot() + xlab("Admit") +
+  ylab("GRE") +
+  ggtitle("Graduate Record Exam scores in each Admit group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+```{r}
+ggplot(df, aes(admit, gpa, fill=admit)) + geom_boxplot() + xlab("Admit") +
+  ylab("GPA") +
+  ggtitle("Grade point average in each Admit group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+Graduate Record Exam scores and grade point average is higher in people who admissed into graduate school
+    
+```{r}
+ggplot(df, aes(rank, gre, fill=rank)) + geom_boxplot() + xlab("Rank") +
+  ylab("GRE") +
+  ggtitle("Graduate Record Exam scores in each Rank group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+```{r}
+ggplot(df, aes(rank, gpa, fill=rank)) + geom_boxplot() + xlab("Rank") +
+  ylab("GPA") +
+  ggtitle("Grade point average in each Rank group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+    
+At undergraduate institution with a 1st rank the results of the Graduate Record Exam is higher, than other institution (higher passing score). And grade point average is higher at undergraduate institution with a 1st and 3d rank.
+    
+
+```{r}
+ggplot(df, aes(rank, gre, fill=admit)) + geom_boxplot() + xlab("Rank") +
+  ylab("GRE") +
+  ggtitle("Graduate Record Exam scores in each Rank group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```
+
+```{r}
+ggplot(df, aes(rank, gpa, fill=admit)) + geom_boxplot() + xlab("Rank") +
+  ylab("GPA") +
+  ggtitle("Grade point average in each Rank group ") +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.7))
+```   
+    
+In each Rank group of institution Graduate Record Exam scores and grade point average is higher in people who admitted into undergraduate institution
+    
+```{r}
+ggplot(df, aes(gre, gpa, color=admit)) + geom_point() + xlab("GRE") +
+  ylab("GPA")
+```
+
+```{r}
+ggplot(df, aes(gre, gpa, color=rank)) + geom_point() + xlab("GRE") +
+  ylab("GPA")
+```
+
+```{r}
+cor(df$gre,df$gpa)
+```
+    
+So, we can notice some positive correlation between gre and gpa.
+    
+# Logistic model
+
+For further analysis, I will standardize the numeric variables: GRE and GPA
+    
+```{r}
+df$gre <- scale(df$gre)
+df$gpa <- scale(df$gpa)
+```
+
+## Full model
+
+```{r}
+mod <- glm(admit ~ ., family = binomial(link = 'logit'), data = df)
+Anova(mod)
+```
+
+## Finding optimal model
+
+The Chi-square test is used to test logistic regression. The selection criterion will be AIC (Akaike information criterion).
+
+```{r}
+drop1(mod, test = "Chi")
+```
+
+```{r}
+AIC(mod)
+```
+
+All predictors are significant, however the collinearity of the "gre" and "gpa" predictors was found earlier, so, let's remove one of them and build a new model
+    
+```{r}
+mod1 <- update(mod, .~.-gre)
+drop1(mod1, test = "Chi")
+```
+
+```{r}
+mod2 <- update(mod, .~.-gpa)
+drop1(mod2, test = "Chi")
+```
+
+Let's compare the AIC for all models.
+    
+```{r}
+AIC(mod, mod1, mod2)
+```
+    
+It can be noticeable that the AIC is increasing in mod1 and mod2, so I come to the conclusion that the full model is the best.
+
+# Model diagnostic 
+
+Before proceeding to the interpretation of the model, it is necessary to check its correctness.
+
+## Linearity check
+
+```{r message=FALSE, warning=FALSE}
+mod_diag <- data.frame(.fitted = fitted(mod, type = 'response'),
+                        .resid_p = resid(mod, type = 'pearson'))
+
+ggplot(mod_diag, aes(y = .resid_p, x = .fitted)) + 
+  geom_point() +
+  theme_bw() +
+  geom_hline(yintercept = 0) +  
+  geom_smooth(method = 'loess')
+```
+
+Linearity is not perfect, but not too bad either.
+    
+## Overdispersion check
+
+```{r}
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)
+  if (any(class(model) == 'negbin')) rdf <- rdf - 1
+  rp <- residuals(model,type='pearson')
+  Pearson.chisq <- sum(rp^2) 
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
+overdisp_fun(mod)
+```
+
+Based on the results of the check, we can make a conclusion that there is no overdispersion (pval > 0.05).
+    
+# Interpretation of model coefitients
+
+```{r}
+summary(mod)
+```
+
+Final model:
+
+**admit = 0.06643 + 0.26158\*gre + 0.30599\*gpa - 0.67544\*rank2 - 1.34020\*rank3 - 1.55146\*rank4**
+
+b0 (intercept) — the logarithm of the odds ratio for the base level of the discrete factor. 
+Continuous predictors have been standardized, so intercept shows the odds ratio for an event at the mean of the predictors.
+
+b1-b2(gre and gpa) — by how many units the logarithm of the odds ratio (logit) changes if the predictor value changes by one;
+
+b3-b5 (rank1, rank2 and rank3) — by how many units does the logarithm of the odds ratio (logit) change for a given discrete factor level compared to the baseline;
+    
+## Interpretation of model
+
+With an increase GRE by one, the odds ratio of getting admitted will increase by e^0.26158^ = 1.29898 times. 
+
+With an increase GPA by one, the odds ratio of getting admitted will increase by e^0.30599^ = 1.35797 times.
+
+The better the exam score and the higher the GPA, the higher the probability of admitted to graduate school
+    
+The odds ratio of admission is lower in 1/e^−0.67544^ = 2 times for rank 2 prestige than with rank 1.
+
+The odds ratio of admission is lower in 1/e^−1.34020^ = 3.8 times for rank 3 prestige than with rank 1.
+
+The odds ratio of admission is lower in 1/e^−1.55146^ = 4.7 times for rank 4 prestige than with rank 1.
+    
+## Making predictions on testing dataset
+
+Create an test dataset with 200 observations (100 per admit group). The values of all predictors will be equal to their mean, except for the GPA predictor.
+    
+```{r}
+new_data <- df %>% group_by(rank) %>%
+  do(data.frame(gpa = seq(from = min(.$gpa), to = max(.$gpa), length.out = 100), gre = mean(.$gre)))
+head(new_data)
+```
+
+```{r}
+X <- model.matrix(~ gpa + gre + rank, data =  new_data)
+b <- coef(mod)
+
+new_data$fit_eta <- X %*% b
+new_data$se_eta <- sqrt(diag(X %*% vcov(mod) %*% t(X)))
+
+logit_back <- function(x) exp(x)/(1 + exp(x)) 
+
+new_data$fit_pi <- logit_back(new_data$fit_eta)
+
+new_data$lwr_pi <- logit_back(new_data$fit_eta - 2 * new_data$se_eta)
+new_data$upr_pi <- logit_back(new_data$fit_eta + 2 * new_data$se_eta)
+
+head(new_data, 2)
+```
+## Plot of predictions at the scale of the link function
+
+```{r}
+ggplot(new_data, aes(x = gpa, y = fit_eta, fill = rank))  + 
+  geom_line(aes(color = rank)) +
+  geom_ribbon(aes(ymin = fit_eta - 2 * se_eta, ymax = fit_eta + 2 * se_eta), alpha = 0.5)
+```
+
+## Plot of predictions at the scale of the responce
+
+```{r}
+ggplot(new_data, aes(x = gpa, y = fit_pi, fill = rank)) +
+  geom_ribbon(aes(ymin = lwr_pi, ymax = upr_pi), alpha = 0.5) +
+  geom_line(aes(color = rank)) +
+  labs(y='Probability', x = 'GPA', title = 'Probability of admittion')  +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+I will repeat the analysis for predictor GRE:
+
+```{r}
+new_data2 <- df %>% group_by(rank) %>%
+  do(data.frame(gre = seq(from = min(.$gre), to = max(.$gre), length.out = 100), gpa = mean(.$gpa)))
+```
+
+```{r}
+X <- model.matrix(~ gpa + gre + rank, data =  new_data2)
+b <- coef(mod)
+
+new_data2$fit_eta <- X %*% b
+new_data2$se_eta <- sqrt(diag(X %*% vcov(mod) %*% t(X)))
+
+logit_back <- function(x) exp(x)/(1 + exp(x)) 
+
+new_data2$fit_pi <- logit_back(new_data2$fit_eta)
+
+new_data2$lwr_pi <- logit_back(new_data2$fit_eta - 2 * new_data2$se_eta)
+new_data2$upr_pi <- logit_back(new_data2$fit_eta + 2 * new_data2$se_eta)
+```
+
+```{r}
+ggplot(new_data2, aes(x = gre, y = fit_eta, fill = rank))  + 
+  geom_line(aes(color = rank)) +
+  geom_ribbon(aes(ymin = fit_eta - 2 * se_eta, ymax = fit_eta + 2 * se_eta), alpha = 0.5)
+```
+
+```{r}
+ggplot(new_data2, aes(x = gre, y = fit_pi, fill = rank)) +
+  geom_ribbon(aes(ymin = lwr_pi, ymax = upr_pi), alpha = 0.5) +
+  geom_line(aes(color = rank)) +
+  labs(y='Probability', x = 'GRE', title = 'Probability of admittion')  +
+  theme(plot.title = element_text(size=14, face="bold", hjust = 0.5))
+```
+
+Conclusion:
+
+Based on the graphs obtained, it can be concluded that with a higher GPA, as well as with better exam results, the likelihood of admitted to institution of any rank increases.
+
+Also, it is noticeable that the probability of admitted to institution with prestige rank 1 is higher than with rank 2, and so on. Perhaps this is due to the fact that students want to study at more prestigious institutions.
+    
+    
